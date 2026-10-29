@@ -1,0 +1,4 @@
+ls docs folder
+cd my_folder
+hello_world
+exit
