@@ -24,21 +24,15 @@ def load_vfs(vfs_path):
     """Загружает виртуальную файловую систему из XML-файла."""
     try:
         tree = ET.parse(vfs_path)
-        root = tree.getroot()
-        return root
-    except FileNotFoundError:
-        return None
-    except ET.ParseError:
+        return tree.getroot()
+    except (FileNotFoundError, ET.ParseError):
         return None
 
 
-def get_current_dir(vfs_root, current_path):
-    """Возвращает элемент текущей директории по пути."""
-    if not current_path:
-        return vfs_root
-    parts = current_path.strip("/").split("/")
+def get_current_dir(vfs_root, path_parts):
+    """Возвращает элемент директории по списку частей пути."""
     current = vfs_root
-    for part in parts:
+    for part in path_parts:
         found = False
         for child in current:
             if child.tag == "dir" and child.get("name") == part:
@@ -50,49 +44,78 @@ def get_current_dir(vfs_root, current_path):
     return current
 
 
+def resolve_path(current_parts, target):
+    """Преобразует целевой путь в абсолютный список частей."""
+    if not target:
+        return current_parts
+    if target == "/":
+        return []
+
+    # Если путь абсолютный (начинается с /), начинаем с корня
+    if target.startswith("/"):
+        parts = target[1:].split("/")
+        result = []
+    else:
+        parts = target.split("/")
+        result = list(current_parts)
+
+    for part in parts:
+        if part == "" or part == ".":
+            continue
+        elif part == "..":
+            if result:
+                result.pop()
+        else:
+            result.append(part)
+
+    return result
+
+
 def execute_command(cmd, args, widget, vfs_root, current_path_ref):
-    """Выполняет команду с учётом VFS."""
+    """Выполняет команду с учётом VFS и продвинутых путей."""
     if cmd == "exit":
         sys.exit(0)
-    if cmd == "ls":
-        current_dir = get_current_dir(vfs_root, current_path_ref[0])
-        if current_dir is None:
-            append_output(widget, "Ошибка: директория не найдена")
+
+    elif cmd == "ls":
+        target = args[0] if args else ""
+        path_parts = resolve_path(current_path_ref[0], target)
+        target_dir = get_current_dir(vfs_root, path_parts)
+
+        if target_dir is None:
+            append_output(widget, f"Ошибка: путь '{target or '/'}' не найден")
             return
-        items = []
-        for child in current_dir:
-            items.append(child.get("name"))
-        if items:
-            append_output(widget, "  ".join(items))
-        else:
-            append_output(widget, "(пусто)")
+
+        items = [child.get("name") for child in target_dir]
+        append_output(widget, "  ".join(items) if items else "(пусто)")
+
+
     elif cmd == "cd":
+
         if not args:
-            current_path_ref[0] = ""
+            current_path_ref[0] = []
+
             return
+
         target = args[0]
-        if target == "..":
-            parts = current_path_ref[0].strip("/").split("/")
-            if len(parts) > 1:
-                current_path_ref[0] = "/".join(parts[:-1])
-            else:
-                current_path_ref[0] = ""
+
+        new_parts = resolve_path(current_path_ref[0], target)
+
+        # Если путь пустой (корень), это всегда валидно
+
+        if not new_parts:
+            current_path_ref[0] = []
+
             return
-        current_dir = get_current_dir(vfs_root, current_path_ref[0])
-        if current_dir is None:
-            append_output(widget, "Ошибка: директория не найдена")
-            return
-        found = False
-        for child in current_dir:
-            if child.tag == "dir" and child.get("name") == target:
-                if current_path_ref[0]:
-                    current_path_ref[0] = current_path_ref[0] + "/" + target
-                else:
-                    current_path_ref[0] = target
-                found = True
-                break
-        if not found:
+
+        target_dir = get_current_dir(vfs_root, new_parts)
+
+        if target_dir is None or target_dir.tag != "dir":
             append_output(widget, f"Ошибка: директория '{target}' не найдена")
+
+            return
+
+        current_path_ref[0] = new_parts
+
     else:
         append_output(widget, f"Ошибка: неизвестная команда '{cmd}'")
 
@@ -102,9 +125,7 @@ def process_input(user_input, widget, vfs_root, current_path_ref):
     parts = user_input.strip().split()
     if not parts:
         return
-    command = parts[0]
-    arguments = parts[1:]
-    execute_command(command, arguments, widget, vfs_root, current_path_ref)
+    execute_command(parts[0], parts[1:], widget, vfs_root, current_path_ref)
 
 
 def run_startup_script(script_path, widget, vfs_root, current_path_ref):
@@ -126,7 +147,7 @@ def run_startup_script(script_path, widget, vfs_root, current_path_ref):
 
 
 def main():
-    """Создаёт и запускает GUI эмулятора с поддержкой аргументов."""
+    """Создаёт и запускает GUI эмулятора."""
     parser = argparse.ArgumentParser(description="Эмулятор терминала")
     parser.add_argument('--vfs', help='Путь к файлу виртуальной ФС')
     parser.add_argument('--script', help='Путь к стартовому скрипту')
@@ -135,13 +156,12 @@ def main():
     print(f"[DEBUG] Путь к VFS: {args.vfs}")
     print(f"[DEBUG] Путь к скрипту: {args.script}")
 
-    vfs_root = None
-    if args.vfs:
-        vfs_root = load_vfs(args.vfs)
-        if vfs_root is None:
-            print(f"[ERROR] Не удалось загрузить VFS из '{args.vfs}'")
+    vfs_root = load_vfs(args.vfs) if args.vfs else None
+    if args.vfs and vfs_root is None:
+        print(f"[ERROR] Не удалось загрузить VFS из '{args.vfs}'")
 
-    current_path_ref = [""]
+    # Храним путь как список частей (пустой список = корень)
+    current_path_ref = [[]]
 
     root = tk.Tk()
     root.title(get_window_title())
