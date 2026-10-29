@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vfs>
+    <dir name="docs">
+        <file name="readme.txt" />
+        <file name="notes.txt" />
+    </dir>
+    <dir name="my_folder">
+        <file name="test.py" />
+    </dir>
+    <file name="root_file.txt" />
+</vfs>
