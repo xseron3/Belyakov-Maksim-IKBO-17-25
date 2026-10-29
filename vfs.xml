@@ -7,5 +7,7 @@
     <dir name="my_folder">
         <file name="test.py" />
     </dir>
+    <dir name="backup">
+    </dir>
     <file name="root_file.txt" />
 </vfs>

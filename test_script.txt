@@ -1,4 +1,9 @@
-ls docs folder
-cd my_folder
-hello_world
+ls
+cd docs
+ls
+cd ..
+cp docs/readme.txt backup
+ls backup
+cp root_file.txt my_folder
+ls my_folder
 exit

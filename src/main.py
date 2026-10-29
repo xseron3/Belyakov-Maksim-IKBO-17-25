@@ -51,7 +51,6 @@ def resolve_path(current_parts, target):
     if target == "/":
         return []
 
-    # Если путь абсолютный (начинается с /), начинаем с корня
     if target.startswith("/"):
         parts = target[1:].split("/")
         result = []
@@ -71,6 +70,14 @@ def resolve_path(current_parts, target):
     return result
 
 
+def find_file_in_dir(dir_element, filename):
+    """Ищет файл в директории и возвращает его элемент."""
+    for child in dir_element:
+        if child.tag == "file" and child.get("name") == filename:
+            return child
+    return None
+
+
 def execute_command(cmd, args, widget, vfs_root, current_path_ref):
     """Выполняет команду с учётом VFS и продвинутых путей."""
     if cmd == "exit":
@@ -88,33 +95,68 @@ def execute_command(cmd, args, widget, vfs_root, current_path_ref):
         items = [child.get("name") for child in target_dir]
         append_output(widget, "  ".join(items) if items else "(пусто)")
 
-
     elif cmd == "cd":
-
         if not args:
             current_path_ref[0] = []
-
             return
 
         target = args[0]
-
         new_parts = resolve_path(current_path_ref[0], target)
-
-        # Если путь пустой (корень), это всегда валидно
 
         if not new_parts:
             current_path_ref[0] = []
-
             return
 
         target_dir = get_current_dir(vfs_root, new_parts)
 
         if target_dir is None or target_dir.tag != "dir":
             append_output(widget, f"Ошибка: директория '{target}' не найдена")
-
             return
 
         current_path_ref[0] = new_parts
+
+    elif cmd == "cp":
+        if len(args) < 2:
+            append_output(widget, "Использование: cp <источник> <назначение>")
+            return
+
+        source = args[0]
+        destination = args[1]
+
+        # Разбираем путь к исходному файлу
+        source_parts = resolve_path(current_path_ref[0], source)
+        if not source_parts:
+            append_output(widget, f"Ошибка: файл '{source}' не найден")
+            return
+
+        # Получаем имя файла и путь к родительской папке
+        source_filename = source_parts[-1]
+        source_parent_parts = source_parts[:-1]
+        source_parent_dir = get_current_dir(vfs_root, source_parent_parts)
+
+        if source_parent_dir is None:
+            append_output(widget, f"Ошибка: путь '{source}' не найден")
+            return
+
+        # Ищем файл в родительской папке
+        source_file = find_file_in_dir(source_parent_dir, source_filename)
+        if source_file is None:
+            append_output(widget, f"Ошибка: файл '{source}' не найден")
+            return
+
+        # Разбираем путь к назначению
+        dest_parts = resolve_path(current_path_ref[0], destination)
+        dest_dir = get_current_dir(vfs_root, dest_parts)
+
+        if dest_dir is None or dest_dir.tag != "dir":
+            append_output(widget, f"Ошибка: директория назначения '{destination}' не найдена")
+            return
+
+        # Создаём копию файла
+        new_file = ET.SubElement(dest_dir, "file")
+        new_file.set("name", source_filename)
+
+        append_output(widget, f"Файл '{source}' скопирован в '{destination}'")
 
     else:
         append_output(widget, f"Ошибка: неизвестная команда '{cmd}'")
@@ -160,7 +202,6 @@ def main():
     if args.vfs and vfs_root is None:
         print(f"[ERROR] Не удалось загрузить VFS из '{args.vfs}'")
 
-    # Храним путь как список частей (пустой список = корень)
     current_path_ref = [[]]
 
     root = tk.Tk()
